@@ -4,6 +4,9 @@ import imageio.v2 as imageio
 import os
 from mpl_toolkits.mplot3d import Axes3D
 
+# Define a semente para garantir resultados reproduzíveis
+np.random.seed(487)
+
 # =================================================================================
 # 1. PARÂMETROS CONFIGURÁVEIS
 # =================================================================================
@@ -12,8 +15,12 @@ DOMAIN_MAX = 100
 N_BITS = 25    
 POPULATION_SIZE = 100
 CROSSOVER_RATE = 0.8
-MUTATION_RATE = 0.01
 MAX_GENERATIONS = 500
+
+# Parâmetros de Mutação Adaptativa
+INITIAL_MUTATION_RATE = 0.01
+ADAPTIVE_MUTATION_RATE_HIGH = 0.05   # Nova taxa de mutação para exploração
+APTITUDE_THRESHOLD_HIGH = 0.99       # Limite de aptidão para acionar a exploração
 
 # Parâmetros do GIF
 GIF_FILENAME = 'ag_evolution.gif'
@@ -77,9 +84,9 @@ def crossover(parent1, parent2):
     child2 = parent2[:crossover_point] + parent1[crossover_point:]
     return child1, child2
 
-def mutation(chromosome):
+def mutation(chromosome, rate):
     for i in range(len(chromosome)):
-        if np.random.rand() < MUTATION_RATE:
+        if np.random.rand() < rate:
             chromosome[i] = 1 - chromosome[i]
     return chromosome
 
@@ -93,12 +100,18 @@ def elitism(population, fitnesses):
 def run_full_analysis():
     
     # ----------------------
-    # Fase 1: Execução do AG e Geração do GIF e dados de aptidão
+    # Fase 1: Execução do AG e Geração de dados e GIF
     # ----------------------
     population = create_population()
     best_chromosome = None
     best_fitness = -np.inf
+    
+    current_mutation_rate = INITIAL_MUTATION_RATE
+    mutation_applied_generation = None
+    
     max_fitness_per_generation = []
+    avg_fitness_per_generation = []
+    diversity_per_generation = []
     
     if not os.path.exists(TEMP_DIR):
         os.makedirs(TEMP_DIR)
@@ -115,12 +128,17 @@ def run_full_analysis():
             x_coords.append(x)
             y_coords.append(y)
         
-        current_best_fitness = max(fitnesses)
-        max_fitness_per_generation.append(current_best_fitness)
+        fitnesses_np = np.array(fitnesses)
+        current_diversity = np.std(fitnesses_np)
         
+        max_fitness_per_generation.append(np.max(fitnesses_np))
+        avg_fitness_per_generation.append(np.mean(fitnesses_np))
+        diversity_per_generation.append(current_diversity)
+
+        # Geração do GIF
         fig, ax = plt.subplots(figsize=(8, 8))
         scatter = ax.scatter(x_coords, y_coords, c=fitnesses, cmap='viridis', vmin=0, vmax=1)
-        ax.set_title(f'Geração {generation} - Melhor Aptidão: {current_best_fitness:.4f}')
+        ax.set_title(f'Geração {generation} - Melhor Aptidão: {np.max(fitnesses_np):.4f}')
         ax.set_xlabel('x')
         ax.set_ylabel('y')
         ax.set_xlim(DOMAIN_MIN, DOMAIN_MAX)
@@ -132,6 +150,12 @@ def run_full_analysis():
         filename = f"{TEMP_DIR}/gen_{generation:04d}.png"
         plt.savefig(filename)
         plt.close(fig)
+
+        current_best_fitness = max(fitnesses)
+        if current_best_fitness >= APTITUDE_THRESHOLD_HIGH and mutation_applied_generation is None:
+            current_mutation_rate = ADAPTIVE_MUTATION_RATE_HIGH
+            mutation_applied_generation = generation
+            print(f"Geração {generation}: Melhor aptidão atingiu {APTITUDE_THRESHOLD_HIGH:.2f}. Aumentando taxa de mutação para {ADAPTIVE_MUTATION_RATE_HIGH:.2f}")
 
         current_best_index = np.argmax(fitnesses)
         if current_best_fitness > best_fitness:
@@ -153,8 +177,8 @@ def run_full_analysis():
             parent1 = population[p1_idx]
             parent2 = population[p2_idx]
             child1, child2 = crossover(parent1, parent2)
-            child1 = mutation(child1)
-            child2 = mutation(child2)
+            child1 = mutation(child1, current_mutation_rate)
+            child2 = mutation(child2, current_mutation_rate)
             next_population.extend([child1, child2])
         
         while len(next_population) < POPULATION_SIZE:
@@ -162,6 +186,7 @@ def run_full_analysis():
 
         population = next_population[:POPULATION_SIZE]
 
+    # Criação do GIF
     print("\nCombinando quadros para gerar o GIF...")
     filenames = sorted([f"{TEMP_DIR}/{f}" for f in os.listdir(TEMP_DIR) if f.endswith('.png')])
     
@@ -179,6 +204,7 @@ def run_full_analysis():
     print("Algoritmo Genético Finalizado.")
     print(f"Melhor aptidão encontrada: {best_fitness:.6f}")
     print(f"Valores de (x, y) que geram essa aptidão: ({final_x:.6f}, {final_y:.6f})")
+    print(f"Geração da mutação adaptativa: {mutation_applied_generation}")
     print(f"O GIF foi salvo como '{GIF_FILENAME}'")
     print("----------------------------------------------------")
 
@@ -186,37 +212,61 @@ def run_full_analysis():
     # Fase 2: Plotagem dos gráficos finais
     # ----------------------
     
-    # Gráfico de evolução da aptidão
     generations = range(1, MAX_GENERATIONS + 1)
     
-    plt.figure(figsize=(10, 6))
-    plt.plot(generations, max_fitness_per_generation, label='Maximum Fitness')
-    plt.axhline(y=1, color='r', linestyle='--', label='Global Maximum (F6(0,0)=1)')
-    plt.title('Evolution of Fitness per Generation')
-    plt.xlabel('Generations')
-    plt.ylabel('Fitness')
-    plt.legend()
-    plt.grid(True)
-    plt.show()
+    max_fitness_np = np.array(max_fitness_per_generation)
+    avg_fitness_np = np.array(avg_fitness_per_generation)
+    diversity_np = np.array(diversity_per_generation)
+    
+    # Normalização dos dados para plotagem
+    normalized_max_fitness = (max_fitness_np - np.min(max_fitness_np)) / (np.max(max_fitness_np) - np.min(max_fitness_np))
+    normalized_diversity = (diversity_np - np.min(diversity_np)) / (np.max(diversity_np) - np.min(diversity_np))
+    normalized_avg_fitness = (avg_fitness_np - np.min(max_fitness_np)) / (np.max(max_fitness_np) - np.min(max_fitness_np))
 
-    # Gráfico de superfície 3D
-    x_grid = np.linspace(DOMAIN_MIN, DOMAIN_MAX, 100)
-    y_grid = np.linspace(DOMAIN_MIN, DOMAIN_MAX, 100)
-    X, Y = np.meshgrid(x_grid, y_grid)
-    Z = fitness_function(X, Y)
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 8))
+
+    # --- Gráfico 1: Visão Geral ---
+    ax1.plot(generations, normalized_max_fitness, 'k-', linewidth=2, label='Aptidão Máxima Normalizada')
+    ax1.plot(generations, normalized_diversity, 'r-', linewidth=2, label='Diversidade (Desvio Padrão Normalizado)')
+    ax1.plot(generations, normalized_avg_fitness, 'g--', linewidth=1, label='Aptidão Média Normalizada')
     
-    fig = plt.figure(figsize=(10, 8))
-    ax = fig.add_subplot(111, projection='3d')
+    if mutation_applied_generation:
+        ax1.axvline(x=mutation_applied_generation, color='red', linestyle='--', label=f'Taxa de Mutação Aumentada (Geração {mutation_applied_generation})')
+
+    ax1.set_title('Evolução Geral da Aptidão e Diversidade')
+    ax1.set_xlabel('Gerações')
+    ax1.set_ylabel('Valor Normalizado')
+    ax1.legend(loc='upper right')
+    ax1.grid(True)
     
-    ax.plot_surface(X, Y, Z, cmap='viridis', rstride=1, cstride=1, alpha=0.8)
-    ax.scatter(0, 0, fitness_function(0, 0), color='red', marker='o', s=100, label='Máximo Global')
+    # --- Gráfico 2: Zoom na mudança ---
+    if mutation_applied_generation:
+        zoom_start = max(1, mutation_applied_generation - 10)
+        zoom_end = min(MAX_GENERATIONS, mutation_applied_generation + 20)
+        
+        zoom_generations = generations[zoom_start-1:zoom_end]
+        zoom_max_fitness = normalized_max_fitness[zoom_start-1:zoom_end]
+        zoom_diversity = normalized_diversity[zoom_start-1:zoom_end]
+        zoom_avg_fitness = normalized_avg_fitness[zoom_start-1:zoom_end]
+        
+        ax2.plot(zoom_generations, zoom_max_fitness, 'k-', linewidth=2, label='Aptidão Máxima Normalizada')
+        ax2.plot(zoom_generations, zoom_diversity, 'r-', linewidth=2, label='Diversidade (Desvio Padrão Normalizado)')
+        ax2.plot(zoom_generations, zoom_avg_fitness, 'g--', linewidth=1, label='Aptidão Média Normalizada')
+        
+        ax2.axvline(x=mutation_applied_generation, color='red', linestyle='--', label=f'Taxa de Mutação Aumentada (Geração {mutation_applied_generation})')
+
+        ax2.set_title('Zoom na Mudança da Taxa de Mutação')
+        ax2.set_xlabel('Gerações')
+        ax2.set_ylabel('Valor Normalizado')
+        ax2.legend(loc='upper right')
+        ax2.grid(True)
+    else:
+        ax2.set_title("O zoom não pode ser exibido. Aptidão máxima não alcançada.")
+        ax2.set_xlabel('Gerações')
+        ax2.set_ylabel('Valor Normalizado')
+        ax2.grid(True)
     
-    ax.set_title('3D - Evaluation Function vs. Change in x-y values')
-    ax.set_xlabel('x-parameter')
-    ax.set_ylabel('y-parameter')
-    ax.set_zlabel('Evaluation Function Value')
-    ax.legend()
-    
+    plt.tight_layout()
     plt.show()
 
 # =================================================================================
