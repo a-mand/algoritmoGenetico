@@ -34,4 +34,4 @@ Esta seção introduz uma estratégia avançada para a taxa de mutação:
 
 ### Autora 
 
-Amanda Gabrielly Prestes Lopes 202207040043
+Amanda Gabrielly Prestes Lopes
